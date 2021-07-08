@@ -51,16 +51,6 @@
   ([queue job-id]
    (:job (get queue job-id))))
 
-(defn pop-job!
-  "removes the job info from the queue and returns the deref'able future."
-  ([job-id]
-   (pop-job! -queue job-id))
-  ([queue-atm job-id]
-   (dosync
-    (let [job (get @queue-atm job-id)]
-      (swap! queue-atm dissoc job-id)
-      job))))
-
 (defn -job-running?
   "returns `true` if job was found and isn't finished or cancelled yet, else `false`."
   [job]
@@ -131,6 +121,29 @@
      (catch java.util.concurrent.CancellationException ce
        ;; deref'ing a cancelled job raises a cancellation exception.
        ce))))
+
+(defn all-job-results
+  ([]
+   (all-job-results @-queue))
+  ([queue]
+   (->> queue keys (mapv job-results))))
+
+(defn pop-job!
+  "removes the job info from the queue and returns the derefable future, regardless of whether the job has been started, cancelled, completed etc"
+  ([job-id]
+   (pop-job! -queue job-id))
+  ([queue-atm job-id]
+   (dosync
+    (when-let [ji (get @queue-atm job-id)]
+      (swap! queue-atm dissoc job-id)
+      ji))))
+
+(defn pop-all-jobs!
+  ([]
+   (pop-all-jobs! -queue))
+  ([queue-atm]
+   (dosync
+    (->> @queue-atm keys (mapv (partial pop-job! queue-atm))))))
 
 (defn start-jobs-in-queue!
   "given a queue of jobs in various states and N number of jobs to be running, ensures that many jobs are running"
