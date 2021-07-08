@@ -8,27 +8,35 @@
   (:import
    [java.util UUID]))
 
+(def lock-obj (Object.))
+
+(defn syncout
+  [& x]
+  (locking lock-obj
+    (apply println x)))
+
 (defn print-thread-id-and-wait
   [duration-secs]
-  (print (format "I am thread %s, waiting for %s seconds ..." (.getId (Thread/currentThread)) duration-secs))
+  (syncout (format "I am thread %s, waiting for %s seconds ..." (.getId (Thread/currentThread)) duration-secs))
   (Thread/sleep (* duration-secs 1000))
-  (println "done"))
+  (syncout (format "thread %s is done." (.getId (Thread/currentThread)))))
 
 (defn print-thread-progress-and-wait
   [duration-secs]
   (let [start (System/currentTimeMillis)] 
     (loop [now start]
       (let [elapsed (-> now (- start) double (/ 1000) int)]
-        (println "elapsed" elapsed)
+        (reset! joblib/-ticker (int (* elapsed (/ 100 duration-secs))))
+        (syncout (format "thread %s progress is: %s" (.getId (Thread/currentThread)) @joblib/-ticker))
         ;;(when-not (nil? -ticker)
         ;;  (
         (when (< elapsed duration-secs)
           (Thread/sleep 100)
           (recur (System/currentTimeMillis)))))))
 
-(defn gen-jobs
+(defn gen-fns
   [num-jobs]
-  (repeatedly num-jobs (partial print-thread-id-and-wait (rand-int 10))))
+  (repeatedly num-jobs #(partial print-thread-progress-and-wait (rand-int 10))))
 
 ;;
 
