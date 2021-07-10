@@ -185,3 +185,15 @@
              (take num-to-run)
              keys
              (run! start-job!)))))))
+
+(defn progress
+  [total pos]
+  (if (or (zero? pos)
+          (zero? total))
+    0.0
+    (float (* pos (/ 1 total)))))
+
+(defn queue-progress
+  "returns the total progress of all jobs in given queue"
+  [queue]
+  (->> queue vals (map :progress) (remove nil?) (apply +) (progress (count queue))))

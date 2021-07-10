@@ -26,7 +26,7 @@
   (let [start (System/currentTimeMillis)] 
     (loop [now start]
       (let [elapsed (-> now (- start) double (/ 1000) int)
-            progress (float (* elapsed (/ 1 duration-secs)))]
+            progress (joblib/progress duration-secs elapsed)]
         (joblib/tick progress)
         (syncout (format "thread %s progress is: %s" (.getId (Thread/currentThread)) (joblib/tick)))
         (when (< elapsed duration-secs)
@@ -47,10 +47,12 @@
         mkwidget (fn [[job-id job-info]]
                    {:fx/type :progress-bar
                     :progress (-> job-info :progress (or 0.0))})
-        ]
+        overall-progress {:fx/type :progress-indicator
+                          :progress (joblib/queue-progress job-queue)}]
     {:fx/type :v-box
      :alignment :center
-     :children (mapv mkwidget job-queue)}))
+     :children (into (mapv mkwidget job-queue) 
+                     [{:fx/type :separator} overall-progress])}))
 
 (defn button-bar
   [_]
