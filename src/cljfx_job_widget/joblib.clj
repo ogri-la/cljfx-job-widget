@@ -4,27 +4,37 @@
   (:import
    [java.util UUID]))
 
-(def ^:dynamic -ticker nil)
+(def ^:dynamic tick (constantly nil))
 (def ^:dynamic -queue (atom (ordered-map)))
+
+(defn make-ticker
+  "returns a fn that accepts a float value between 0.0 and 1.0 inclusive.
+  called with a float will update the job's progress in the queue.
+  called without arguments returns the job's current progress."
+  [queue-atm job-id]
+  (fn [& [pct]]
+    (when pct
+      (swap! queue-atm assoc-in [job-id :progress] pct))
+    (:progress (get @queue-atm job-id))))
 
 (defn job
   "given a function `f`, returns a 'job' (fn) that accepts an atom to be used as a progress meter.
   'starting' this job returns a future that can be deref'ed to retrieve the result or cancelled with `future-cancel`."
   [f]
-  (fn [atm]
+  (fn [tick-fn]
     (future 
-      (binding [-ticker atm]
+      (binding [tick tick-fn]
         (try
           (f)
           (catch Exception uncaught-exc
             uncaught-exc))))))
 
 (defn job-info
-  "given a job `j` and optional map with keys :job-id and :ticker, return a struct that can be added to a queue"
-  [j & [{:keys [job-id ticker]}]]
+  "given a job `j` and optional map with keys :job-id, return a struct that can be added to a queue"
+  [j & [{:keys [job-id]}]]
   {:job j
    :job-id (or job-id (java.util.UUID/randomUUID))
-   :ticker (or ticker (atom 0))})
+   :progress nil})
 
 (defn add-to-queue!
   ([ji]
@@ -37,7 +47,7 @@
         job-id)))))
 
 (defn create-job-add-to-queue!
-  "convenience, takes a function `f`, wraps it in a `job`, gives it a ticker and adds it to the queue.
+  "convenience, takes a function `f`, wraps it in a `job`, gives it a tick function and adds it to the queue.
   returns the job ID"
   ([f]
    (create-job-add-to-queue! -queue f))
@@ -94,8 +104,11 @@
    (dosync
     (when-not (job-done? @queue-atm job-id)
       (when-let [ji (get @queue-atm job-id)]
-        (let [j (:job ji)
-              running-job (j (:ticker ji))]
+        (let [j-fn (:job ji)
+              ;; `tick` updates the job's progress in the queue
+              tick-fn (make-ticker queue-atm job-id)
+              running-job (j-fn tick-fn)]
+          ;; replace the job fn with the future object
           (swap! queue-atm assoc-in [job-id :job] running-job)
           running-job))))))
 

@@ -25,16 +25,17 @@
   [duration-secs]
   (let [start (System/currentTimeMillis)] 
     (loop [now start]
-      (let [elapsed (-> now (- start) double (/ 1000) int)]
-        (reset! joblib/-ticker (int (* elapsed (/ 100 duration-secs))))
-        (syncout (format "thread %s progress is: %s" (.getId (Thread/currentThread)) @joblib/-ticker))
+      (let [elapsed (-> now (- start) double (/ 1000) int)
+            progress (float (* elapsed (/ 1 duration-secs)))]
+        (joblib/tick progress)
+        (syncout (format "thread %s progress is: %s" (.getId (Thread/currentThread)) (joblib/tick)))
         (when (< elapsed duration-secs)
-          (Thread/sleep 100) ;; 10 beats a second
+          (Thread/sleep 100)
           (recur (System/currentTimeMillis)))))))
 
 (defn gen-fns
   [num-jobs]
-  (repeatedly num-jobs #(partial print-thread-progress-and-wait (rand-int 10))))
+  (repeatedly num-jobs #(partial print-thread-progress-and-wait (rand-nth (range 2 10)))))
 
 ;;
 
@@ -45,7 +46,7 @@
   (let [job-queue (fx/sub-val context get-in [:app-state :queue])
         mkwidget (fn [[job-id job-info]]
                    {:fx/type :progress-bar
-                    :progress (-> job-info :ticker deref (or 0.0))})
+                    :progress (-> job-info :progress (or 0.0))})
         ]
     {:fx/type :v-box
      :alignment :center
