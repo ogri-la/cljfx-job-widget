@@ -28,10 +28,8 @@
       (let [elapsed (-> now (- start) double (/ 1000) int)]
         (reset! joblib/-ticker (int (* elapsed (/ 100 duration-secs))))
         (syncout (format "thread %s progress is: %s" (.getId (Thread/currentThread)) @joblib/-ticker))
-        ;;(when-not (nil? -ticker)
-        ;;  (
         (when (< elapsed duration-secs)
-          (Thread/sleep 100)
+          (Thread/sleep 100) ;; 10 beats a second
           (recur (System/currentTimeMillis)))))))
 
 (defn gen-fns
@@ -42,29 +40,53 @@
 
 (def state (atom []))
 
-(defn root
-  [_]
-  (let [num-items (rand-int 40)
-        mkwidget (fn [i]
-                   {:fx/type :label
-                    :text (str "Hello, world. I am widget " i)})
+(defn job-listing
+  [{:keys [fx/context]}]
+  (let [job-queue (fx/sub-val context get-in [:app-state :queue])
+        mkwidget (fn [[job-id job-info]]
+                   {:fx/type :progress-bar
+                    :progress (-> job-info :ticker deref (or 0.0))})
         ]
     {:fx/type :v-box
      :alignment :center
-     :children (mapv mkwidget (range 0 num-items))}))
+     :children (mapv mkwidget job-queue)}))
 
-(defn ui
-  []
-  (fx/on-fx-thread
-   (fx/create-component
-    {:fx/type :stage
-     :showing true
-     :title "Cljfx example"
-     :width 300
-     :height 100
-     :scene {:fx/type :scene
-             :root {:fx/type root}}})))
+(defn button-bar
+  [_]
+  {:fx/type :v-box
+   :children []})
+
+(defn app
+  [_]
+  {:fx/type :stage
+   :showing true
+   :title "Cljfx example"
+   :width 300
+   :height 100
+   :scene {:fx/type :scene
+           :root {:fx/type :border-pane
+                  :top {:fx/type button-bar}
+                  :center {:fx/type job-listing}}}})
 
 (defn start
   []
-  (ui))
+  (let [state-template {:app-state {:queue {}}}
+        gui-state (atom (fx/create-context state-template))
+        update-gui-state (fn [k a old-state new-state]
+                           (swap! gui-state fx/swap-context assoc-in [:app-state :queue] new-state))
+        _ (add-watch joblib/-queue :queue-key update-gui-state)
+
+        renderer (fx/create-renderer
+                  :middleware (comp
+                               fx/wrap-context-desc
+                               (fx/wrap-map-desc (fn [_] {:fx/type app})))
+
+                  ;; magic :(
+
+                  :opts {:fx.opt/type->lifecycle #(or (fx/keyword->lifecycle %)
+                                                      ;; For functions in `:fx/type` values, pass
+                                                      ;; context from option map to these functions
+                                                      (fx/fn->lifecycle-with-context %))})
+        ]
+    (fx/mount-renderer gui-state renderer))
+  nil)
