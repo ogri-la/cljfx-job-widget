@@ -72,6 +72,10 @@
   ([queue job-id]
    (:job (get queue job-id))))
 
+(defn -job-not-started?
+  [job]
+  (fn? job))
+
 (defn -job-started?
   "returns `true` if the job has been started. It may even be done."
   [job]
@@ -124,7 +128,7 @@
     (let [ji (get @queue-atm job-id)
           j-fn (:job ji)]
       (when (and ji
-                 (not (-job-started? j-fn)))
+                 (-job-not-started? j-fn))
         (let [;; `tick` updates the job's progress in the queue
               tick-fn (make-ticker queue-atm job-id)
               running-job (j-fn tick-fn)]
@@ -150,7 +154,10 @@
   ([queue job-id]
    (try
      (let [future-obj (get-job queue job-id)]
-       @future-obj)
+       ;; job may not be started yet and is still a fn! if it's a future, deref it
+       (if (future? future-obj)
+         @future-obj
+         future-obj))
      (catch java.util.concurrent.CancellationException ce
        ;; deref'ing a cancelled job raises a cancellation exception.
        ce))))
@@ -176,7 +183,7 @@
    (pop-all-jobs! -queue))
   ([queue-atm]
    (dosync
-    (->> @queue-atm keys (mapv (partial pop-job! queue-atm))))))
+    (some->> @queue-atm keys (mapv (partial pop-job! queue-atm))))))
 
 (defn queue-progress
   "returns the total progress of all jobs in given queue"
@@ -188,7 +195,7 @@
   (let [jobs (->> queue vals (map :job))]
     {:total (count jobs)
      :progress (queue-progress queue)
-     :not-started (->> jobs (filter (comp not -job-started?)) count)
+     :not-started (->> jobs (filter -job-not-started?) count)
      :running (->> jobs (filter -job-running?) count)
      :cancelled (->> jobs (filter -job-cancelled?) count)
      :done (->> jobs (filter -job-done?) count)}))
@@ -213,11 +220,12 @@
           
           ;; leaving just those running or not started
           [jobs-running, jobs-not-started] (split-with job-running?* queue)
-          
-          n-jobs-running (or n-jobs-running (count jobs-not-started))
-          num-to-run (- n-jobs-running (count jobs-running))
 
-          start-job!* (partial start-job! queue-atm)]
+          start-job!* (partial start-job! queue-atm)
+
+          num-to-run (if (nil? n-jobs-running)
+                       (count jobs-not-started)
+                       (- n-jobs-running (count jobs-running)))]
       (when (> num-to-run 0)
         (some->> jobs-not-started
                  (take num-to-run)
@@ -237,7 +245,7 @@
                       ;; number of jobs running is less than desired AND there are jobs outstanding
                       (when (and (< (:running queue-stats) n-jobs-running)
                                  (> (:not-started queue-stats) 0))
-                        (println "triggering start-jobs" queue-stats)
+                        ;;(println (format "thread %s tiggering start-jobs %s" (.getId (Thread/currentThread)) queue-stats))
                         ;; we're just using changes to the atm as a trigger,
                         ;; we're not really interested in what has changed
                         (start-jobs-in-queue! queue-atm-ref n-jobs-running))))]

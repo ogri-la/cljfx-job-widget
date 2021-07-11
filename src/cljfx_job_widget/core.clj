@@ -56,8 +56,20 @@
 
 (defn button-bar
   [_]
-  {:fx/type :v-box
-   :children []})
+  {:fx/type :tool-bar
+   :items [
+           {:fx/type :button :text "gen 20 jobs" :on-action (fn [_] (run! joblib/create-job-add-to-queue! (gen-fns 20)))}
+           {:fx/type :button :text "do all" :on-action (fn [_]
+                                                     ;;(swap! joblib/-queue identity))}
+                                                     (joblib/start-jobs-in-queue!))}
+           {:fx/type :button :text "do 3 at a time" :on-action (fn [_]
+                                                                 (joblib/monitor! 3))}
+           {:fx/type :button :text "kick" :on-action (fn [_]
+                                                       ;; trigger a change to the queue so the monitor starts processing jobs
+                                                       (swap! joblib/-queue identity))}
+           {:fx/type :button :text "clear all results" :on-action (fn [_] (joblib/pop-all-jobs!))}
+            ]
+   })
 
 (defn app
   [_]
