@@ -1,24 +1,30 @@
 # cljfx job widget
 
-Use
+From the REPL:
 
     (start)
 
-To start the GUI. It will watch `joblib/-queue` for changes and update itself.
+To start the GUI:
 
-Click `gen 20 jobs` to add 20 dummy jobs to the queue that tick down the seconds until they're done.
+![Screenshot at 2021-07-11 23-32-03](./job-queue.png)
 
-Click `do all` to start all 20 jobs in parallel.
+It will watch `joblib/-queue` for changes and update itself.
+
+Click `generate 20 jobs` to add 20 dummy jobs to the queue that tick down the seconds until they're done.
+
+Click `do 3` to start 3 jobs in parallel.
+
+Click `do all` to start the remaining jobs in parallel.
 
 Click `clear jobs` to remove the jobs from the queue.
 
-Click `gen 20 jobs` to add another 20 dummy jobs to the queue.
+Click `generate 20 jobs` to add another 20 dummy jobs to the queue.
 
-Click `do 3 at a time` to add a monitor that processes 3 jobs in parallel until all jobs are done.
+Click `do 3 until done` to add a monitor that processes 3 jobs in parallel until all jobs are done.
 
-Click `generate 20 jobs` and see 3 jobs taken in parallel again.
+Click `generate 20 jobs` and see 3 jobs taken in parallel again, until all jobs are done.
 
-Click `delete monitor` to stop jobs being automatically processed as they become available.
+Click `delete monitor` to stop jobs being automatically processed.
 
 From the CLI:
 
