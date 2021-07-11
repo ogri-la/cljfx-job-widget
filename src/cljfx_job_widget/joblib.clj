@@ -4,6 +4,17 @@
   (:import
    [java.util UUID]))
 
+;; utils
+
+(defn progress
+  [total pos]
+  (if (or (zero? pos)
+          (zero? total))
+    0.0
+    (float (* pos (/ 1 total)))))
+
+;;
+
 (def ^:dynamic tick (constantly nil))
 (def ^:dynamic -queue (atom (ordered-map)))
 
@@ -61,6 +72,11 @@
   ([queue job-id]
    (:job (get queue job-id))))
 
+(defn -job-started?
+  "returns `true` if the job has been started. It may even be done."
+  [job]
+  (future? job))
+
 (defn -job-running?
   "returns `true` if job was found and isn't finished or cancelled yet, else `false`."
   [job]
@@ -74,14 +90,17 @@
   ([queue job-id]
    (-job-running? (get-job queue job-id))))
 
+(defn -job-cancelled?
+  [job]
+  (and (future? job)
+       (future-cancelled? job)))
+
 (defn job-cancelled?
   "returns `true` if job was found was has been cancelled, else `false`."
   ([job-id]
    (job-cancelled? @-queue job-id))
   ([queue job-id]
-   (let [job (get-job queue job-id)]
-     (and (future? job)
-          (future-cancelled? job)))))
+   (-job-cancelled? (get-job queue job-id))))
 
 (defn -job-done?
   "returns `true` if job was found and has completed, this includes being cancelled or failing with an exception, otherwise `false`"
@@ -102,10 +121,11 @@
    (start-job! -queue job-id))
   ([queue-atm job-id]
    (dosync
-    (when-not (job-done? @queue-atm job-id)
-      (when-let [ji (get @queue-atm job-id)]
-        (let [j-fn (:job ji)
-              ;; `tick` updates the job's progress in the queue
+    (let [ji (get @queue-atm job-id)
+          j-fn (:job ji)]
+      (when (and ji
+                 (not (-job-started? j-fn)))
+        (let [;; `tick` updates the job's progress in the queue
               tick-fn (make-ticker queue-atm job-id)
               running-job (j-fn tick-fn)]
           ;; replace the job fn with the future object
@@ -158,6 +178,22 @@
    (dosync
     (->> @queue-atm keys (mapv (partial pop-job! queue-atm))))))
 
+(defn queue-progress
+  "returns the total progress of all jobs in given queue"
+  [queue]
+  (->> queue vals (map :progress) (remove nil?) (apply +) (progress (count queue))))
+
+(defn queue-info
+  [queue]
+  (let [jobs (->> queue vals (map :job))]
+    {:total (count jobs)
+     :progress (queue-progress queue)
+     :not-started (->> jobs (filter (comp not -job-started?)) count)
+     :running (->> jobs (filter -job-running?) count)
+     :cancelled (->> jobs (filter -job-cancelled?) count)
+     :done (->> jobs (filter -job-done?) count)}))
+
+;; todo: switch body to use queue-info above
 (defn start-jobs-in-queue!
   "given a queue of jobs in various states and N number of jobs to be running, ensures that many jobs are running"
   ([]
@@ -179,21 +215,32 @@
           [jobs-running, jobs-not-started] (split-with job-running?* queue)
           
           n-jobs-running (or n-jobs-running (count jobs-not-started))
-          num-to-run (- n-jobs-running (count jobs-running))]
+          num-to-run (- n-jobs-running (count jobs-running))
+
+          start-job!* (partial start-job! queue-atm)]
       (when (> num-to-run 0)
-        (->> jobs-not-started
-             (take num-to-run)
-             keys
-             (run! start-job!)))))))
+        (some->> jobs-not-started
+                 (take num-to-run)
+                 keys
+                 (run! start-job!*)))))))
 
-(defn progress
-  [total pos]
-  (if (or (zero? pos)
-          (zero? total))
-    0.0
-    (float (* pos (/ 1 total)))))
 
-(defn queue-progress
-  "returns the total progress of all jobs in given queue"
-  [queue]
-  (->> queue vals (map :progress) (remove nil?) (apply +) (progress (count queue))))
+(defn monitor!
+  "attaches a watch to the queue that calls `start-jobs-in-queue!` every time the queue changes.
+  returns a function that accepts no arguments and stops the monitor when called."
+  ([n-jobs-running]
+   (monitor! -queue n-jobs-running))
+  ([queue-atm n-jobs-running]
+   (let [key (-> (java.util.UUID/randomUUID) str keyword)
+         watch-fn (fn [key queue-atm-ref old-queue new-queue]
+                    (let [queue-stats (queue-info new-queue)]
+                      ;; number of jobs running is less than desired AND there are jobs outstanding
+                      (when (and (< (:running queue-stats) n-jobs-running)
+                                 (> (:not-started queue-stats) 0))
+                        (println "triggering start-jobs" queue-stats)
+                        ;; we're just using changes to the atm as a trigger,
+                        ;; we're not really interested in what has changed
+                        (start-jobs-in-queue! queue-atm-ref n-jobs-running))))]
+     (add-watch queue-atm key watch-fn)
+     (fn []
+       (remove-watch queue-atm key)))))

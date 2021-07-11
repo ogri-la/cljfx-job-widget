@@ -28,7 +28,7 @@
       (let [elapsed (-> now (- start) double (/ 1000) int)
             progress (joblib/progress duration-secs elapsed)]
         (joblib/tick progress)
-        (syncout (format "thread %s progress is: %s" (.getId (Thread/currentThread)) (joblib/tick)))
+        ;;(syncout (format "thread %s progress is: %s" (.getId (Thread/currentThread)) (joblib/tick)))
         (when (< elapsed duration-secs)
           (Thread/sleep 100)
           (recur (System/currentTimeMillis)))))))
