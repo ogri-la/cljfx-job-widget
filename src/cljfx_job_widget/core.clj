@@ -39,7 +39,7 @@
 
 ;;
 
-(def state (atom []))
+(def state (atom {:cleanup []}))
 
 (defn job-listing
   [{:keys [fx/context]}]
@@ -58,16 +58,20 @@
   [_]
   {:fx/type :tool-bar
    :items [
-           {:fx/type :button :text "gen 20 jobs" :on-action (fn [_] (run! joblib/create-job-add-to-queue! (gen-fns 20)))}
+           {:fx/type :button :text "generate 20 jobs" :on-action (fn [_] (run! joblib/create-job-add-to-queue! (gen-fns 20)))}
+           {:fx/type :button :text "do 3" :on-action (fn [_]
+                                                       (joblib/start-jobs-in-queue! 3))}
            {:fx/type :button :text "do all" :on-action (fn [_]
-                                                     ;;(swap! joblib/-queue identity))}
-                                                     (joblib/start-jobs-in-queue!))}
-           {:fx/type :button :text "do 3 at a time" :on-action (fn [_]
-                                                                 (joblib/monitor! 3))}
-           {:fx/type :button :text "kick" :on-action (fn [_]
-                                                       ;; trigger a change to the queue so the monitor starts processing jobs
-                                                       (swap! joblib/-queue identity))}
-           {:fx/type :button :text "clear all results" :on-action (fn [_] (joblib/pop-all-jobs!))}
+                                                         (joblib/start-jobs-in-queue!))}
+           {:fx/type :button :text "do 3 until done" :on-action (fn [_]
+                                                                 (swap! state update-in [:cleanup] conj (joblib/monitor! 3))
+                                                                 ;; trigger a change to the queue so the monitor starts processing jobs.
+                                                                 ;; may be unnecessary if monitor already exists.
+                                                                 (swap! joblib/-queue identity))}
+           {:fx/type :button :text "clear jobs" :on-action (fn [_] (joblib/pop-all-jobs!))}
+           {:fx/type :button :text "delete monitor" :on-action (fn [_]
+                                                                 (->> @state :cleanup (run! #(%)))
+                                                                 (swap! state assoc :cleanup []))}
             ]
    })
 
